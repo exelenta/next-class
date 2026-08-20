@@ -10,6 +10,7 @@
     <link rel="manifest" href="/manifest.webmanifest" />
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/auth.css" />
     <title>다음 수업</title>
   </head>
   <body>
@@ -24,6 +25,17 @@
           <button class="icon-button" id="installButton" hidden>설치</button>
         </div>
       </header>
+
+      <section class="account-panel">
+        <div id="signedOutView">
+          <div class="account-copy"><strong>계정으로 시간표 동기화</strong><p>다른 기기에서도 같은 시간표를 사용할 수 있어요.</p></div>
+          <button class="secondary compact" id="openAuthButton">로그인 · 회원가입</button>
+        </div>
+        <div id="signedInView" hidden>
+          <div class="account-copy"><strong><span id="accountName"></span>님</strong><p>이 계정의 시간표와 동기화 중이에요.</p></div>
+          <button class="text-button" id="logoutButton">로그아웃</button>
+        </div>
+      </section>
 
       <section class="next-card" id="nextCard">
         <span class="status-dot"></span>
@@ -113,7 +125,23 @@
       </form>
     </dialog>
 
+    <dialog id="authDialog">
+      <form id="authForm">
+        <div class="dialog-head">
+          <h2 id="authTitle">로그인</h2>
+          <button type="button" class="close-button" id="closeAuthButton" aria-label="닫기">×</button>
+        </div>
+        <p class="auth-description" id="authDescription">계정의 시간표를 이 기기로 불러옵니다.</p>
+        <label>아이디<input id="authUsername" required minlength="4" maxlength="20" pattern="[A-Za-z0-9_]+" autocomplete="username" placeholder="영문, 숫자, 밑줄 4~20자" /></label>
+        <label>비밀번호<input id="authPassword" type="password" required minlength="8" maxlength="128" autocomplete="current-password" placeholder="8자 이상" /></label>
+        <button class="primary auth-submit" id="authSubmitButton" type="submit">로그인</button>
+        <button class="text-button auth-switch" id="authSwitchButton" type="button">처음이신가요? 회원가입</button>
+        <p class="auth-note">비밀번호 찾기는 아직 지원하지 않으니 안전하게 보관해 주세요.</p>
+      </form>
+    </dialog>
+
     <div class="toast" id="toast" role="status"></div>
     <script type="module" src="/app.js"></script>
+    <script type="module" src="/auth.js"></script>
   </body>
 </html>

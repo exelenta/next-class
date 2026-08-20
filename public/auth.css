@@ -1,0 +1,14 @@
+.account-panel {
+  margin: -8px 0 18px;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: #13161b;
+}
+.account-panel > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.account-copy p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
+.secondary.compact { width: auto; min-height: 38px; margin: 0; padding: 0 13px; white-space: nowrap; }
+.auth-description, .auth-note { color: var(--muted); font-size: 13px; line-height: 1.5; }
+.auth-submit { width: 100%; margin-top: 22px; }
+.auth-switch { display: block; margin: 14px auto 0; }
+.auth-note { text-align: center; font-size: 11px; }
