@@ -1,4 +1,4 @@
-const CACHE="next-class-v2",ASSETS=["/","/styles.css","/app.js","/icon.svg","/ai-import-prompt.txt"];
+const CACHE="next-class-v3",ASSETS=["/","/styles.css","/auth.css","/app.js","/auth.js","/icon.svg","/ai-import-prompt.txt"];
 self.addEventListener("install",e=>e.waitUntil(Promise.all([caches.open(CACHE).then(c=>c.addAll(ASSETS)),self.skipWaiting()])));
 self.addEventListener("activate",e=>e.waitUntil(Promise.all([caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))),clients.claim()])));
 self.addEventListener("fetch",e=>{if(e.request.method!=="GET"||new URL(e.request.url).pathname.startsWith("/api/"))return;e.respondWith(fetch(e.request).then(r=>{const copy=r.clone();caches.open(CACHE).then(c=>c.put(e.request,copy));return r}).catch(()=>caches.match(e.request)))});

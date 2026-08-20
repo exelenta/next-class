@@ -36,6 +36,95 @@ interface DeviceRow {
 const json = (data: unknown, status = 200) =>
   Response.json(data, { status, headers: { "cache-control": "no-store" } });
 
+const encoder = new TextEncoder();
+const SESSION_COOKIE = "next_class_session";
+const SESSION_DAYS = 30;
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let value = "";
+  for (const byte of bytes) value += String.fromCharCode(byte);
+  return btoa(value);
+}
+
+function randomToken(size = 32): string {
+  return bytesToBase64(crypto.getRandomValues(new Uint8Array(size)))
+    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+async function sha256(value: string): Promise<string> {
+  return bytesToBase64(new Uint8Array(await crypto.subtle.digest("SHA-256", encoder.encode(value))));
+}
+
+async function hashPassword(password: string, salt: string): Promise<string> {
+  const key = await crypto.subtle.importKey("raw", encoder.encode(password), "PBKDF2", false, ["deriveBits"]);
+  const bits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", hash: "SHA-256", salt: encoder.encode(salt), iterations: 210_000 },
+    key,
+    256,
+  );
+  return bytesToBase64(new Uint8Array(bits));
+}
+
+function sessionToken(request: Request): string | null {
+  const cookie = request.headers.get("cookie") ?? "";
+  const match = cookie.match(new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=([^;]+)`));
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+async function currentUser(request: Request, env: Env): Promise<{ id: string; username: string } | null> {
+  const token = sessionToken(request);
+  if (!token) return null;
+  return env.DB.prepare(`
+    SELECT users.id, users.username FROM sessions
+    JOIN users ON users.id = sessions.user_id
+    WHERE sessions.token_hash = ? AND sessions.expires_at > CURRENT_TIMESTAMP
+  `).bind(await sha256(token)).first<{ id: string; username: string }>();
+}
+
+async function createSession(env: Env, userId: string): Promise<{ token: string; expires: Date }> {
+  const token = randomToken();
+  const expires = new Date(Date.now() + SESSION_DAYS * 86_400_000);
+  await env.DB.prepare("INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)")
+    .bind(await sha256(token), userId, expires.toISOString()).run();
+  return { token, expires };
+}
+
+function sessionCookie(token: string, expires: Date): string {
+  return `${SESSION_COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; Secure; SameSite=Strict; Expires=${expires.toUTCString()}`;
+}
+
+function clearSessionCookie(): string {
+  return `${SESSION_COOKIE}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`;
+}
+
+function authJson(data: unknown, cookie: string, status = 200): Response {
+  return Response.json(data, { status, headers: { "cache-control": "no-store", "set-cookie": cookie } });
+}
+
+function validUsername(value: unknown): value is string {
+  return typeof value === "string" && /^[a-zA-Z0-9_]{4,20}$/.test(value);
+}
+
+function validPassword(value: unknown): value is string {
+  return typeof value === "string" && value.length >= 8 && value.length <= 128;
+}
+
+async function authLimit(env: Env, key: string, max: number, windowSeconds: number): Promise<boolean> {
+  const now = Math.floor(Date.now() / 1000);
+  const row = await env.DB.prepare("SELECT attempts, window_start FROM auth_rate_limits WHERE key = ?")
+    .bind(key).first<{ attempts: number; window_start: number }>();
+  return Boolean(row && now - row.window_start < windowSeconds && row.attempts >= max);
+}
+
+async function recordAuthAttempt(env: Env, key: string, windowSeconds: number): Promise<void> {
+  const now = Math.floor(Date.now() / 1000);
+  await env.DB.prepare(`INSERT INTO auth_rate_limits (key, attempts, window_start) VALUES (?, 1, ?)
+    ON CONFLICT(key) DO UPDATE SET
+      attempts = CASE WHEN ? - window_start >= ? THEN 1 ELSE attempts + 1 END,
+      window_start = CASE WHEN ? - window_start >= ? THEN ? ELSE window_start END`)
+    .bind(key, now, now, windowSeconds, now, windowSeconds, now).run();
+}
+
 function validDeviceId(value: unknown): value is string {
   return typeof value === "string" && /^[0-9a-f-]{36}$/i.test(value);
 }
@@ -85,11 +174,84 @@ async function sendPush(env: Env, subscription: PushSubscription, title: string,
       privateKey: env.VAPID_PRIVATE_KEY,
     },
   );
-  return fetch(subscription.endpoint, payload);
+  return fetch(subscription.endpoint, { ...payload, body: payload.body as BodyInit });
 }
 
 async function api(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
+
+  if (!["GET", "HEAD"].includes(request.method)) {
+    const origin = request.headers.get("origin");
+    if (origin && origin !== url.origin) return json({ error: "허용되지 않은 요청입니다." }, 403);
+  }
+
+  if (url.pathname === "/api/auth/me" && request.method === "GET") {
+    return json({ user: await currentUser(request, env) });
+  }
+
+  if (url.pathname === "/api/auth/signup" && request.method === "POST") {
+    const body = await request.json<{ username?: unknown; password?: unknown; deviceId?: unknown }>()
+      .catch(() => ({} as { username?: unknown; password?: unknown; deviceId?: unknown }));
+    if (!validUsername(body.username)) return json({ error: "아이디는 영문, 숫자, 밑줄 4~20자로 입력해 주세요." }, 400);
+    if (!validPassword(body.password)) return json({ error: "비밀번호는 8~128자로 입력해 주세요." }, 400);
+    if (!validDeviceId(body.deviceId)) return json({ error: "잘못된 기기 ID입니다." }, 400);
+    const username = body.username.toLowerCase();
+    const signupKey = `signup:${request.headers.get("cf-connecting-ip") ?? "unknown"}`;
+    if (await authLimit(env, signupKey, 5, 3600)) return json({ error: "회원가입 요청이 너무 많습니다. 잠시 후 다시 시도해 주세요." }, 429);
+    await recordAuthAttempt(env, signupKey, 3600);
+    if (await env.DB.prepare("SELECT 1 FROM users WHERE username = ?").bind(username).first()) {
+      return json({ error: "이미 사용 중인 아이디입니다." }, 409);
+    }
+    const userId = crypto.randomUUID();
+    const salt = randomToken(16);
+    const passwordHash = await hashPassword(body.password, salt);
+    const device = await env.DB.prepare("SELECT schedule_json, reminder_minutes FROM devices WHERE id = ?")
+      .bind(body.deviceId).first<{ schedule_json: string; reminder_minutes: number }>();
+    try {
+      await env.DB.batch([
+        env.DB.prepare("INSERT INTO users (id, username, password_hash, password_salt) VALUES (?, ?, ?, ?)")
+          .bind(userId, username, passwordHash, salt),
+        env.DB.prepare("INSERT INTO timetables (user_id, schedule_json, reminder_minutes) VALUES (?, ?, ?)")
+          .bind(userId, device?.schedule_json ?? JSON.stringify(normalizeSchedule([])), device?.reminder_minutes ?? 10),
+        env.DB.prepare("UPDATE devices SET user_id = ? WHERE id = ?").bind(userId, body.deviceId),
+      ]);
+    } catch (error) {
+      console.error("signup failed", error);
+      return json({ error: "회원가입을 완료하지 못했습니다. 잠시 후 다시 시도해 주세요." }, 500);
+    }
+    const session = await createSession(env, userId);
+    return authJson({ user: { id: userId, username } }, sessionCookie(session.token, session.expires), 201);
+  }
+
+  if (url.pathname === "/api/auth/login" && request.method === "POST") {
+    const body = await request.json<{ username?: unknown; password?: unknown; deviceId?: unknown }>()
+      .catch(() => ({} as { username?: unknown; password?: unknown; deviceId?: unknown }));
+    if (!validUsername(body.username) || !validPassword(body.password) || !validDeviceId(body.deviceId)) {
+      return json({ error: "아이디 또는 비밀번호를 확인해 주세요." }, 400);
+    }
+    const normalizedUsername = body.username.toLowerCase();
+    const loginKey = `login:${request.headers.get("cf-connecting-ip") ?? "unknown"}:${normalizedUsername}`;
+    if (await authLimit(env, loginKey, 10, 900)) return json({ error: "로그인 시도가 너무 많습니다. 15분 후 다시 시도해 주세요." }, 429);
+    const user = await env.DB.prepare("SELECT id, username, password_hash, password_salt FROM users WHERE username = ?")
+      .bind(normalizedUsername).first<{ id: string; username: string; password_hash: string; password_salt: string }>();
+    const candidate = user
+      ? await hashPassword(body.password, user.password_salt)
+      : await hashPassword(body.password, randomToken(16));
+    if (!user || candidate !== user.password_hash) {
+      await recordAuthAttempt(env, loginKey, 900);
+      return json({ error: "아이디 또는 비밀번호가 올바르지 않습니다." }, 401);
+    }
+    await env.DB.prepare("DELETE FROM auth_rate_limits WHERE key = ?").bind(loginKey).run();
+    await env.DB.prepare("UPDATE devices SET user_id = ? WHERE id = ?").bind(user.id, body.deviceId).run();
+    const session = await createSession(env, user.id);
+    return authJson({ user: { id: user.id, username: user.username } }, sessionCookie(session.token, session.expires));
+  }
+
+  if (url.pathname === "/api/auth/logout" && request.method === "POST") {
+    const token = sessionToken(request);
+    if (token) await env.DB.prepare("DELETE FROM sessions WHERE token_hash = ?").bind(await sha256(token)).run();
+    return authJson({ ok: true }, clearSessionCookie());
+  }
 
   if (url.pathname === "/api/config" && request.method === "GET") {
     return json({ vapidPublicKey: env.VAPID_PUBLIC_KEY });
@@ -98,9 +260,16 @@ async function api(request: Request, env: Env): Promise<Response> {
   if (url.pathname.startsWith("/api/device/") && request.method === "GET") {
     const id = decodeURIComponent(url.pathname.slice("/api/device/".length));
     if (!validDeviceId(id)) return json({ error: "잘못된 기기 ID입니다." }, 400);
-    const row = await env.DB.prepare(
-      "SELECT schedule_json, reminder_minutes, subscription_json IS NOT NULL AS push_enabled FROM devices WHERE id = ?",
-    ).bind(id).first<{ schedule_json: string; reminder_minutes: number; push_enabled: number }>();
+    const user = await currentUser(request, env);
+    if (user) await env.DB.prepare("UPDATE devices SET user_id = ? WHERE id = ?").bind(user.id, id).run();
+    const row = user
+      ? await env.DB.prepare(`SELECT timetables.schedule_json, timetables.reminder_minutes,
+          EXISTS(SELECT 1 FROM devices WHERE id = ? AND subscription_json IS NOT NULL) AS push_enabled
+        FROM timetables WHERE user_id = ?`).bind(id, user.id)
+          .first<{ schedule_json: string; reminder_minutes: number; push_enabled: number }>()
+      : await env.DB.prepare(
+          "SELECT schedule_json, reminder_minutes, subscription_json IS NOT NULL AS push_enabled FROM devices WHERE id = ?",
+        ).bind(id).first<{ schedule_json: string; reminder_minutes: number; push_enabled: number }>();
     if (!row) return json({
       schedule: [], reminderMinutes: 10, pushEnabled: false,
       cycle: "weekly", anchorDate: "2026-01-05",
@@ -139,18 +308,29 @@ async function api(request: Request, env: Env): Promise<Response> {
         subscription_json = COALESCE(excluded.subscription_json, devices.subscription_json),
         updated_at = CURRENT_TIMESTAMP
     `).bind(body.deviceId, JSON.stringify(scheduleData), reminder, subscription).run();
+    const user = await currentUser(request, env);
+    if (user) {
+      await env.DB.batch([
+        env.DB.prepare("UPDATE devices SET user_id = ? WHERE id = ?").bind(user.id, body.deviceId),
+        env.DB.prepare(`INSERT INTO timetables (user_id, schedule_json, reminder_minutes, updated_at)
+          VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+          ON CONFLICT(user_id) DO UPDATE SET schedule_json = excluded.schedule_json,
+            reminder_minutes = excluded.reminder_minutes, updated_at = CURRENT_TIMESTAMP`)
+          .bind(user.id, JSON.stringify(scheduleData), reminder),
+      ]);
+    }
     return json({ ok: true });
   }
 
   if (url.pathname === "/api/push/disable" && request.method === "POST") {
-    const body = await request.json<{ deviceId?: unknown }>().catch(() => ({}));
+    const body = await request.json<{ deviceId?: unknown }>().catch(() => ({} as { deviceId?: unknown }));
     if (!validDeviceId(body.deviceId)) return json({ error: "잘못된 기기 ID입니다." }, 400);
     await env.DB.prepare("UPDATE devices SET subscription_json = NULL WHERE id = ?").bind(body.deviceId).run();
     return json({ ok: true });
   }
 
   if (url.pathname === "/api/push/test" && request.method === "POST") {
-    const body = await request.json<{ deviceId?: unknown }>().catch(() => ({}));
+    const body = await request.json<{ deviceId?: unknown }>().catch(() => ({} as { deviceId?: unknown }));
     if (!validDeviceId(body.deviceId)) return json({ error: "잘못된 기기 ID입니다." }, 400);
     const row = await env.DB.prepare("SELECT subscription_json FROM devices WHERE id = ?")
       .bind(body.deviceId).first<{ subscription_json: string | null }>();
@@ -189,11 +369,16 @@ function activeCycleWeek(date: string, anchorDate: string): "A" | "B" {
 async function runScheduled(env: Env): Promise<void> {
   const now = seoulNow();
   await env.DB.prepare("DELETE FROM sent_notifications WHERE class_date < date('now', '-14 days')").run();
+  await env.DB.prepare("DELETE FROM sessions WHERE expires_at <= CURRENT_TIMESTAMP").run();
+  await env.DB.prepare("DELETE FROM auth_rate_limits WHERE window_start < unixepoch() - 86400").run();
   if (now.day > 5) return;
 
-  const { results } = await env.DB.prepare(
-    "SELECT id, schedule_json, reminder_minutes, subscription_json FROM devices WHERE subscription_json IS NOT NULL",
-  ).all<DeviceRow>();
+  const { results } = await env.DB.prepare(`SELECT devices.id,
+      COALESCE(timetables.schedule_json, devices.schedule_json) AS schedule_json,
+      COALESCE(timetables.reminder_minutes, devices.reminder_minutes) AS reminder_minutes,
+      devices.subscription_json
+    FROM devices LEFT JOIN timetables ON timetables.user_id = devices.user_id
+    WHERE devices.subscription_json IS NOT NULL`).all<DeviceRow>();
 
   for (const device of results) {
     const saved = normalizeSchedule(JSON.parse(device.schedule_json));
