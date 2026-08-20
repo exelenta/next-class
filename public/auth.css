@@ -12,3 +12,4 @@
 .auth-submit { width: 100%; margin-top: 22px; }
 .auth-switch { display: block; margin: 14px auto 0; }
 .auth-note { text-align: center; font-size: 11px; }
+.auth-error { margin: 12px 0 0; color: #ff929d; font-size: 13px; line-height: 1.45; }
