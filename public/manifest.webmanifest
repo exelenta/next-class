@@ -1,0 +1,1 @@
+{"name":"다음 수업","short_name":"다음 수업","description":"학교 시간표에 맞춰 다음 수업을 알려주는 앱","start_url":"/","display":"standalone","background_color":"#0d0f13","theme_color":"#171a21","lang":"ko","icons":[{"src":"/icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]}

@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#171a21" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="다음 수업" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+    <title>다음 수업</title>
+  </head>
+  <body>
+    <main class="shell">
+      <header>
+        <div>
+          <p class="eyebrow" id="todayLabel">오늘의 시간표</p>
+          <h1>다음 수업</h1>
+        </div>
+        <button class="icon-button" id="installButton" hidden>설치</button>
+      </header>
+
+      <section class="next-card" id="nextCard">
+        <span class="status-dot"></span>
+        <p class="card-label">NEXT CLASS</p>
+        <h2 id="nextName">시간표를 추가해 주세요</h2>
+        <p id="nextMeta">아래에서 오늘 수업을 등록할 수 있어요.</p>
+        <div class="countdown" id="countdown">—</div>
+      </section>
+
+      <section class="push-panel">
+        <div>
+          <strong>수업 전 알림</strong>
+          <p id="pushStatus">홈 화면에 설치하면 푸시 알림을 받을 수 있어요.</p>
+        </div>
+        <button class="primary small" id="pushButton">알림 켜기</button>
+      </section>
+
+      <nav class="days" id="days" aria-label="요일 선택"></nav>
+
+      <section class="schedule-section">
+        <div class="section-title">
+          <h2 id="dayTitle">월요일</h2>
+          <button class="text-button" id="addButton">+ 수업 추가</button>
+        </div>
+        <div class="class-list" id="classList"></div>
+      </section>
+
+      <section class="settings">
+        <label for="reminder">알림 시점</label>
+        <select id="reminder">
+          <option value="5">5분 전</option>
+          <option value="10" selected>10분 전</option>
+          <option value="15">15분 전</option>
+          <option value="30">30분 전</option>
+        </select>
+        <button class="secondary" id="testButton">테스트 알림 보내기</button>
+      </section>
+    </main>
+
+    <dialog id="classDialog">
+      <form method="dialog" id="classForm">
+        <div class="dialog-head">
+          <h2>수업 정보</h2>
+          <button type="button" class="close-button" id="closeDialogButton" aria-label="닫기">×</button>
+        </div>
+        <input type="hidden" id="classId" />
+        <label>과목명<input id="className" required maxlength="60" placeholder="예: 자료구조" /></label>
+        <label>강의실<input id="classRoom" maxlength="60" placeholder="예: 공학관 302호" /></label>
+        <div class="time-fields">
+          <label>시작<input id="classStart" type="time" required value="09:00" /></label>
+          <label>종료<input id="classEnd" type="time" required value="10:15" /></label>
+        </div>
+        <div class="dialog-actions">
+          <button type="button" class="danger" id="deleteButton" hidden>삭제</button>
+          <button class="primary" value="default">저장</button>
+        </div>
+      </form>
+    </dialog>
+
+    <div class="toast" id="toast" role="status"></div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
