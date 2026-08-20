@@ -13,13 +13,13 @@
     {
       "binding": "DB",
       "database_name": "next-class-db",
-      "database_id": "REPLACE_WITH_D1_DATABASE_ID"
+      "database_id": "25c0355b-37d5-4f88-8e55-7976525f4ddc"
     }
   ],
   "triggers": {
     "crons": ["*/5 * * * *"]
   },
   "vars": {
-    "VAPID_SUBJECT": "mailto:REPLACE_WITH_YOUR_EMAIL"
+    "VAPID_SUBJECT": "mailto:hyeonjune.jang@gmail.com"
   }
 }
