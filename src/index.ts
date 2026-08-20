@@ -11,10 +11,19 @@ interface Env {
 interface ClassItem {
   id: string;
   day: number;
+  week?: "A" | "B" | "ALL";
   name: string;
   room: string;
   start: string;
   end: string;
+}
+
+interface ScheduleData {
+  format: "next-class-timetable";
+  version: 1;
+  cycle: "weekly" | "biweekly";
+  anchorDate: string;
+  classes: ClassItem[];
 }
 
 interface DeviceRow {
@@ -35,11 +44,32 @@ function validSchedule(value: unknown): value is ClassItem[] {
   return Array.isArray(value) && value.length <= 80 && value.every((item) =>
     item && typeof item.id === "string" && item.id.length <= 80 &&
     Number.isInteger(item.day) && item.day >= 1 && item.day <= 5 &&
+    (item.week === undefined || ["A", "B", "ALL"].includes(item.week)) &&
     typeof item.name === "string" && item.name.trim().length > 0 && item.name.length <= 60 &&
     typeof item.room === "string" && item.room.length <= 60 &&
     /^([01]\d|2[0-3]):[0-5]\d$/.test(item.start) &&
     /^([01]\d|2[0-3]):[0-5]\d$/.test(item.end)
   );
+}
+
+const validDate = (value: unknown): value is string =>
+  typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
+
+function normalizeSchedule(value: unknown): ScheduleData {
+  if (Array.isArray(value)) {
+    return {
+      format: "next-class-timetable", version: 1, cycle: "weekly",
+      anchorDate: "2026-01-05", classes: value.map((item) => ({ ...item, week: "ALL" })),
+    };
+  }
+  const data = value as Partial<ScheduleData> | null;
+  return {
+    format: "next-class-timetable",
+    version: 1,
+    cycle: data?.cycle === "biweekly" ? "biweekly" : "weekly",
+    anchorDate: validDate(data?.anchorDate) ? data.anchorDate : "2026-01-05",
+    classes: validSchedule(data?.classes) ? data.classes : [],
+  };
 }
 
 async function sendPush(env: Env, subscription: PushSubscription, title: string, body: string) {
@@ -71,9 +101,15 @@ async function api(request: Request, env: Env): Promise<Response> {
     const row = await env.DB.prepare(
       "SELECT schedule_json, reminder_minutes, subscription_json IS NOT NULL AS push_enabled FROM devices WHERE id = ?",
     ).bind(id).first<{ schedule_json: string; reminder_minutes: number; push_enabled: number }>();
-    if (!row) return json({ schedule: [], reminderMinutes: 10, pushEnabled: false });
+    if (!row) return json({
+      schedule: [], reminderMinutes: 10, pushEnabled: false,
+      cycle: "weekly", anchorDate: "2026-01-05",
+    });
+    const saved = normalizeSchedule(JSON.parse(row.schedule_json));
     return json({
-      schedule: JSON.parse(row.schedule_json),
+      schedule: saved.classes,
+      cycle: saved.cycle,
+      anchorDate: saved.anchorDate,
       reminderMinutes: row.reminder_minutes,
       pushEnabled: Boolean(row.push_enabled),
     });
@@ -86,6 +122,13 @@ async function api(request: Request, env: Env): Promise<Response> {
     }
     const reminder = Number(body.reminderMinutes);
     if (![5, 10, 15, 30].includes(reminder)) return json({ error: "알림 시간을 확인해 주세요." }, 400);
+    const cycle = body.cycle === "biweekly" ? "biweekly" : "weekly";
+    if (!validDate(body.anchorDate)) return json({ error: "격주 기준 날짜를 확인해 주세요." }, 400);
+    const scheduleData: ScheduleData = {
+      format: "next-class-timetable", version: 1, cycle,
+      anchorDate: body.anchorDate,
+      classes: body.schedule.map((item) => ({ ...item, week: item.week ?? "ALL" })),
+    };
     const subscription = body.subscription ? JSON.stringify(body.subscription) : null;
     await env.DB.prepare(`
       INSERT INTO devices (id, schedule_json, reminder_minutes, subscription_json, updated_at)
@@ -95,7 +138,7 @@ async function api(request: Request, env: Env): Promise<Response> {
         reminder_minutes = excluded.reminder_minutes,
         subscription_json = COALESCE(excluded.subscription_json, devices.subscription_json),
         updated_at = CURRENT_TIMESTAMP
-    `).bind(body.deviceId, JSON.stringify(body.schedule), reminder, subscription).run();
+    `).bind(body.deviceId, JSON.stringify(scheduleData), reminder, subscription).run();
     return json({ ok: true });
   }
 
@@ -136,6 +179,13 @@ function seoulNow(date = new Date()) {
   };
 }
 
+function activeCycleWeek(date: string, anchorDate: string): "A" | "B" {
+  const current = Date.parse(`${date}T00:00:00Z`);
+  const anchor = Date.parse(`${anchorDate}T00:00:00Z`);
+  const weeks = Math.floor((current - anchor) / 604_800_000);
+  return ((weeks % 2) + 2) % 2 === 0 ? "A" : "B";
+}
+
 async function runScheduled(env: Env): Promise<void> {
   const now = seoulNow();
   await env.DB.prepare("DELETE FROM sent_notifications WHERE class_date < date('now', '-14 days')").run();
@@ -146,8 +196,11 @@ async function runScheduled(env: Env): Promise<void> {
   ).all<DeviceRow>();
 
   for (const device of results) {
-    const schedule = JSON.parse(device.schedule_json) as ClassItem[];
-    for (const item of schedule.filter((entry) => entry.day === now.day)) {
+    const saved = normalizeSchedule(JSON.parse(device.schedule_json));
+    const activeWeek = saved.cycle === "biweekly" ? activeCycleWeek(now.date, saved.anchorDate) : "ALL";
+    for (const item of saved.classes.filter((entry) =>
+      entry.day === now.day && (activeWeek === "ALL" || !entry.week || entry.week === "ALL" || entry.week === activeWeek)
+    )) {
       const [hour, minute] = item.start.split(":").map(Number);
       const alertAt = hour * 60 + minute - device.reminder_minutes;
       if (now.minutes < alertAt || now.minutes >= alertAt + 5) continue;
