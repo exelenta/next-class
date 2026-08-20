@@ -2,6 +2,10 @@
 
 iPhone 홈 화면에 설치해 사용하는 학교 시간표 PWA입니다. Cloudflare Worker 하나가 정적 앱, API, D1, 예약 Web Push를 담당합니다.
 
+## 시간표 파일 형식
+
+앱은 `next-class-timetable` JSON 파일을 가져오고 내보낼 수 있습니다. `cycle`은 `weekly` 또는 `biweekly`, 격주 수업의 `week`는 `A`, `B`, `ALL` 중 하나입니다. 앱의 **AI 변환 프롬프트 복사** 버튼으로 시간표 사진을 이 형식으로 변환하도록 요청할 수 있습니다.
+
 ## 배포
 
 1. `npm install`

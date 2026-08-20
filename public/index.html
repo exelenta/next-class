@@ -19,7 +19,10 @@
           <p class="eyebrow" id="todayLabel">오늘의 시간표</p>
           <h1>다음 수업</h1>
         </div>
-        <button class="icon-button" id="installButton" hidden>설치</button>
+        <div class="header-actions">
+          <button class="icon-button refresh-button" id="refreshButton" aria-label="앱 업데이트 새로고침" title="최신 버전으로 새로고침">↻</button>
+          <button class="icon-button" id="installButton" hidden>설치</button>
+        </div>
       </header>
 
       <section class="next-card" id="nextCard">
@@ -37,6 +40,23 @@
         </div>
         <button class="primary small" id="pushButton">알림 켜기</button>
       </section>
+
+      <section class="cycle-panel">
+        <label>시간표 반복
+          <select id="cycle">
+            <option value="weekly">매주 동일</option>
+            <option value="biweekly">격주 A/B</option>
+          </select>
+        </label>
+        <label id="anchorField" hidden>A주가 시작되는 월요일
+          <input id="anchorDate" type="date" />
+        </label>
+      </section>
+
+      <nav class="week-tabs" id="weekTabs" aria-label="격주 선택" hidden>
+        <button class="week-tab active" data-week="A">A주</button>
+        <button class="week-tab" data-week="B">B주</button>
+      </nav>
 
       <nav class="days" id="days" aria-label="요일 선택"></nav>
 
@@ -57,6 +77,12 @@
           <option value="30">30분 전</option>
         </select>
         <button class="secondary" id="testButton">테스트 알림 보내기</button>
+        <div class="file-actions">
+          <button class="secondary" id="importButton">시간표 파일 가져오기</button>
+          <button class="secondary" id="exportButton">시간표 파일 내보내기</button>
+          <button class="secondary accent-outline" id="promptButton">AI 변환 프롬프트 복사</button>
+        </div>
+        <input id="importFile" type="file" accept="application/json,.json,.nextclass" hidden />
       </section>
     </main>
 
@@ -69,6 +95,13 @@
         <input type="hidden" id="classId" />
         <label>과목명<input id="className" required maxlength="60" placeholder="예: 자료구조" /></label>
         <label>강의실<input id="classRoom" maxlength="60" placeholder="예: 공학관 302호" /></label>
+        <label id="classWeekField" hidden>적용 주차
+          <select id="classWeek">
+            <option value="A">A주</option>
+            <option value="B">B주</option>
+            <option value="ALL">매주</option>
+          </select>
+        </label>
         <div class="time-fields">
           <label>시작<input id="classStart" type="time" required value="09:00" /></label>
           <label>종료<input id="classEnd" type="time" required value="10:15" /></label>
