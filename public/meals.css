@@ -17,6 +17,17 @@
   background: #171a21e8;
   box-shadow: 0 16px 45px #000b;
   backdrop-filter: blur(18px);
+  transform: translateX(-50%);
+}
+
+.meal-dock,
+.meal-dock *,
+.meal-popup,
+.meal-popup * {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-user-drag: none;
 }
 
 .meal-button {
@@ -34,6 +45,7 @@
   touch-action: none;
   user-select: none;
   -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
   transition: transform .14s ease, background .14s ease, color .14s ease;
 }
 
