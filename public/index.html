@@ -11,6 +11,7 @@
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/styles.css" />
     <link rel="stylesheet" href="/auth.css" />
+    <link rel="stylesheet" href="/meals.css" />
     <title>다음 수업</title>
   </head>
   <body>
@@ -47,8 +48,8 @@
 
       <section class="push-panel">
         <div>
-          <strong>수업 전 알림</strong>
-          <p id="pushStatus">홈 화면에 설치하면 푸시 알림을 받을 수 있어요.</p>
+          <strong>수업·급식 알림</strong>
+          <p id="pushStatus">홈 화면에 설치하면 수업과 급식 알림을 받을 수 있어요.</p>
         </div>
         <button class="primary small" id="pushButton">알림 켜기</button>
       </section>
@@ -81,13 +82,38 @@
       </section>
 
       <section class="settings">
-        <label for="reminder">알림 시점</label>
+        <div class="section-title settings-title"><h2>환경설정</h2></div>
+        <label for="reminder">수업 알림 시점</label>
         <select id="reminder">
           <option value="5">5분 전</option>
           <option value="10" selected>10분 전</option>
           <option value="15">15분 전</option>
           <option value="30">30분 전</option>
         </select>
+
+        <section class="meal-time-settings" aria-labelledby="mealTimeTitle">
+          <div class="meal-time-heading">
+            <h3 id="mealTimeTitle">급식 알림 시간</h3>
+            <p>알림을 켠 기기에 메뉴를 보내요.</p>
+          </div>
+          <div class="meal-time-group">
+            <strong>주중</strong>
+            <div class="meal-time-grid">
+              <label>조식<input class="meal-time-input" type="time" data-period="weekday" data-meal="breakfast" value="07:00" required /></label>
+              <label>중식<input class="meal-time-input" type="time" data-period="weekday" data-meal="lunch" value="12:00" required /></label>
+              <label>석식<input class="meal-time-input" type="time" data-period="weekday" data-meal="dinner" value="17:00" required /></label>
+            </div>
+          </div>
+          <div class="meal-time-group">
+            <strong>주말</strong>
+            <div class="meal-time-grid">
+              <label>조식<input class="meal-time-input" type="time" data-period="weekend" data-meal="breakfast" value="07:30" required /></label>
+              <label>중식<input class="meal-time-input" type="time" data-period="weekend" data-meal="lunch" value="11:00" required /></label>
+              <label>석식<input class="meal-time-input" type="time" data-period="weekend" data-meal="dinner" value="16:00" required /></label>
+            </div>
+          </div>
+        </section>
+
         <button class="secondary" id="testButton">테스트 알림 보내기</button>
         <div class="file-actions">
           <button class="secondary" id="importButton">시간표 파일 가져오기</button>
@@ -139,6 +165,30 @@
         <p class="auth-note">비밀번호 찾기는 아직 지원하지 않으니 안전하게 보관해 주세요.</p>
       </form>
     </dialog>
+
+    <aside class="meal-popup" id="mealPopup" aria-hidden="true" aria-live="polite">
+      <div class="meal-popup-head">
+        <div>
+          <p class="meal-popup-date" id="mealPopupDate">오늘의 급식</p>
+          <h2 id="mealPopupTitle">조식</h2>
+        </div>
+        <span class="meal-calories" id="mealCalories"></span>
+      </div>
+      <ul class="meal-menu-list" id="mealMenuList"></ul>
+      <p class="meal-popup-hint">손을 떼면 닫혀요</p>
+    </aside>
+
+    <nav class="meal-dock" aria-label="오늘의 급식 미리보기">
+      <button class="meal-button" type="button" data-meal="breakfast" aria-label="누르고 있는 동안 조식 메뉴 보기">
+        <span class="meal-icon" aria-hidden="true">☀</span><span>조식</span>
+      </button>
+      <button class="meal-button" type="button" data-meal="lunch" aria-label="누르고 있는 동안 중식 메뉴 보기">
+        <span class="meal-icon" aria-hidden="true">◐</span><span>중식</span>
+      </button>
+      <button class="meal-button" type="button" data-meal="dinner" aria-label="누르고 있는 동안 석식 메뉴 보기">
+        <span class="meal-icon" aria-hidden="true">☾</span><span>석식</span>
+      </button>
+    </nav>
 
     <div class="toast" id="toast" role="status"></div>
     <script type="module" src="/app.js"></script>

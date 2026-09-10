@@ -6,6 +6,7 @@ interface Env {
   VAPID_PUBLIC_KEY: string;
   VAPID_PRIVATE_KEY: string;
   VAPID_SUBJECT: string;
+  NEIS_API_KEY?: string;
 }
 
 interface ClassItem {
@@ -24,6 +25,7 @@ interface ScheduleData {
   cycle: "weekly" | "biweekly";
   anchorDate: string;
   classes: ClassItem[];
+  mealTimes: MealTimes;
 }
 
 interface DeviceRow {
@@ -31,6 +33,97 @@ interface DeviceRow {
   schedule_json: string;
   reminder_minutes: number;
   subscription_json: string | null;
+}
+
+interface NeisMealRow {
+  MMEAL_SC_CODE: "1" | "2" | "3";
+  MMEAL_SC_NM: string;
+  DDISH_NM: string;
+  CAL_INFO?: string;
+}
+
+type MealType = "breakfast" | "lunch" | "dinner";
+
+interface MealTimes {
+  weekday: Record<MealType, string>;
+  weekend: Record<MealType, string>;
+}
+
+interface MealInfo {
+  name: string;
+  items: string[];
+  calories: string;
+}
+
+type MealsByType = Partial<Record<MealType, MealInfo>>;
+
+const NEIS_OFFICE_CODE = "D10";
+const NEIS_SCHOOL_CODE = "7240060";
+const MEAL_TYPES: MealType[] = ["breakfast", "lunch", "dinner"];
+const DEFAULT_MEAL_TIMES: MealTimes = {
+  weekday: { breakfast: "07:00", lunch: "12:00", dinner: "17:00" },
+  weekend: { breakfast: "07:30", lunch: "11:00", dinner: "16:00" },
+};
+
+const validTime = (value: unknown): value is string =>
+  typeof value === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
+
+function validMealTimes(value: unknown): value is MealTimes {
+  if (!value || typeof value !== "object") return false;
+  const times = value as Partial<MealTimes>;
+  return (["weekday", "weekend"] as const).every((period) =>
+    times[period] && MEAL_TYPES.every((meal) => validTime(times[period]?.[meal]))
+  );
+}
+
+function defaultMealTimes(): MealTimes {
+  return {
+    weekday: { ...DEFAULT_MEAL_TIMES.weekday },
+    weekend: { ...DEFAULT_MEAL_TIMES.weekend },
+  };
+}
+
+function mealItems(value: string): string[] {
+  return value
+    .split(/<br\s*\/?>/i)
+    .map((item) => item.replace(/^\*+/, "").trim())
+    .filter(Boolean);
+}
+
+async function getMeals(env: Env, date: string): Promise<MealsByType> {
+  const neisDate = date.replaceAll("-", "");
+  const params = new URLSearchParams({
+    Type: "json",
+    pIndex: "1",
+    pSize: "5",
+    ATPT_OFCDC_SC_CODE: NEIS_OFFICE_CODE,
+    SD_SCHUL_CODE: NEIS_SCHOOL_CODE,
+    MLSV_FROM_YMD: neisDate,
+    MLSV_TO_YMD: neisDate,
+  });
+  if (env.NEIS_API_KEY) params.set("KEY", env.NEIS_API_KEY);
+
+  const response = await fetch(`https://open.neis.go.kr/hub/mealServiceDietInfo?${params}`);
+  if (!response.ok) throw new Error(`NEIS returned ${response.status}`);
+
+  const payload = await response.json<{
+    mealServiceDietInfo?: Array<{ row?: NeisMealRow[] }>;
+  }>();
+  const rows = payload.mealServiceDietInfo?.find((item) => item.row)?.row ?? [];
+  const codeToType: Record<NeisMealRow["MMEAL_SC_CODE"], MealType> = {
+    "1": "breakfast",
+    "2": "lunch",
+    "3": "dinner",
+  };
+  const meals: MealsByType = {};
+  for (const row of rows) {
+    meals[codeToType[row.MMEAL_SC_CODE]] = {
+      name: row.MMEAL_SC_NM,
+      items: mealItems(row.DDISH_NM),
+      calories: row.CAL_INFO ?? "",
+    };
+  }
+  return meals;
 }
 
 const json = (data: unknown, status = 200) =>
@@ -149,6 +242,7 @@ function normalizeSchedule(value: unknown): ScheduleData {
     return {
       format: "next-class-timetable", version: 1, cycle: "weekly",
       anchorDate: "2026-01-05", classes: value.map((item) => ({ ...item, week: "ALL" })),
+      mealTimes: defaultMealTimes(),
     };
   }
   const data = value as Partial<ScheduleData> | null;
@@ -158,6 +252,7 @@ function normalizeSchedule(value: unknown): ScheduleData {
     cycle: data?.cycle === "biweekly" ? "biweekly" : "weekly",
     anchorDate: validDate(data?.anchorDate) ? data.anchorDate : "2026-01-05",
     classes: validSchedule(data?.classes) ? data.classes : [],
+    mealTimes: validMealTimes(data?.mealTimes) ? data.mealTimes : defaultMealTimes(),
   };
 }
 
@@ -187,6 +282,20 @@ async function api(request: Request, env: Env): Promise<Response> {
 
   if (url.pathname === "/api/auth/me" && request.method === "GET") {
     return json({ user: await currentUser(request, env) });
+  }
+
+  if (url.pathname === "/api/meals" && request.method === "GET") {
+    const requestedDate = url.searchParams.get("date");
+    const date = requestedDate && validDate(requestedDate) ? requestedDate : seoulNow().date;
+    try {
+      return Response.json(
+        { date, meals: await getMeals(env, date) },
+        { headers: { "cache-control": "public, max-age=600, s-maxage=1800" } },
+      );
+    } catch (error) {
+      console.error("meal lookup failed", error);
+      return json({ error: "급식 정보를 불러오지 못했습니다." }, 502);
+    }
   }
 
   if (url.pathname === "/api/auth/signup" && request.method === "POST") {
@@ -272,13 +381,14 @@ async function api(request: Request, env: Env): Promise<Response> {
         ).bind(id).first<{ schedule_json: string; reminder_minutes: number; push_enabled: number }>();
     if (!row) return json({
       schedule: [], reminderMinutes: 10, pushEnabled: false,
-      cycle: "weekly", anchorDate: "2026-01-05",
+      cycle: "weekly", anchorDate: "2026-01-05", mealTimes: defaultMealTimes(),
     });
     const saved = normalizeSchedule(JSON.parse(row.schedule_json));
     return json({
       schedule: saved.classes,
       cycle: saved.cycle,
       anchorDate: saved.anchorDate,
+      mealTimes: saved.mealTimes,
       reminderMinutes: row.reminder_minutes,
       pushEnabled: Boolean(row.push_enabled),
     });
@@ -293,10 +403,12 @@ async function api(request: Request, env: Env): Promise<Response> {
     if (![5, 10, 15, 30].includes(reminder)) return json({ error: "알림 시간을 확인해 주세요." }, 400);
     const cycle = body.cycle === "biweekly" ? "biweekly" : "weekly";
     if (!validDate(body.anchorDate)) return json({ error: "격주 기준 날짜를 확인해 주세요." }, 400);
+    if (!validMealTimes(body.mealTimes)) return json({ error: "급식 알림 시간을 확인해 주세요." }, 400);
     const scheduleData: ScheduleData = {
       format: "next-class-timetable", version: 1, cycle,
       anchorDate: body.anchorDate,
       classes: body.schedule.map((item) => ({ ...item, week: item.week ?? "ALL" })),
+      mealTimes: body.mealTimes,
     };
     const subscription = body.subscription ? JSON.stringify(body.subscription) : null;
     await env.DB.prepare(`
@@ -335,7 +447,7 @@ async function api(request: Request, env: Env): Promise<Response> {
     const row = await env.DB.prepare("SELECT subscription_json FROM devices WHERE id = ?")
       .bind(body.deviceId).first<{ subscription_json: string | null }>();
     if (!row?.subscription_json) return json({ error: "먼저 알림을 켜 주세요." }, 404);
-    const response = await sendPush(env, JSON.parse(row.subscription_json), "알림 준비 완료", "다음 수업 알림이 정상적으로 설정됐어요.");
+    const response = await sendPush(env, JSON.parse(row.subscription_json), "알림 준비 완료", "수업·급식 알림이 정상적으로 설정됐어요.");
     if (response.status === 404 || response.status === 410) {
       await env.DB.prepare("UPDATE devices SET subscription_json = NULL WHERE id = ?").bind(body.deviceId).run();
     }
@@ -366,12 +478,16 @@ function activeCycleWeek(date: string, anchorDate: string): "A" | "B" {
   return ((weeks % 2) + 2) % 2 === 0 ? "A" : "B";
 }
 
+function minuteOfDay(time: string): number {
+  const [hour, minute] = time.split(":").map(Number);
+  return hour * 60 + minute;
+}
+
 async function runScheduled(env: Env): Promise<void> {
   const now = seoulNow();
   await env.DB.prepare("DELETE FROM sent_notifications WHERE class_date < date('now', '-14 days')").run();
   await env.DB.prepare("DELETE FROM sessions WHERE expires_at <= CURRENT_TIMESTAMP").run();
   await env.DB.prepare("DELETE FROM auth_rate_limits WHERE window_start < unixepoch() - 86400").run();
-  if (now.day > 5) return;
 
   const { results } = await env.DB.prepare(`SELECT devices.id,
       COALESCE(timetables.schedule_json, devices.schedule_json) AS schedule_json,
@@ -380,6 +496,8 @@ async function runScheduled(env: Env): Promise<void> {
     FROM devices LEFT JOIN timetables ON timetables.user_id = devices.user_id
     WHERE devices.subscription_json IS NOT NULL`).all<DeviceRow>();
 
+  let mealsForToday: MealsByType | null = null;
+  let mealsUnavailable = false;
   for (const device of results) {
     const saved = normalizeSchedule(JSON.parse(device.schedule_json));
     const activeWeek = saved.cycle === "biweekly" ? activeCycleWeek(now.date, saved.anchorDate) : "ALL";
@@ -412,6 +530,48 @@ async function runScheduled(env: Env): Promise<void> {
         await env.DB.prepare(
           "DELETE FROM sent_notifications WHERE device_id = ? AND class_id = ? AND class_date = ?",
         ).bind(device.id, item.id, now.date).run();
+      }
+    }
+
+    const period = now.day <= 5 ? "weekday" : "weekend";
+    for (const mealType of MEAL_TYPES) {
+      const alertAt = minuteOfDay(saved.mealTimes[period][mealType]);
+      if (now.minutes < alertAt || now.minutes >= alertAt + 5 || mealsUnavailable) continue;
+
+      if (!mealsForToday) {
+        try {
+          mealsForToday = await getMeals(env, now.date);
+        } catch (error) {
+          mealsUnavailable = true;
+          console.error("scheduled meal lookup failed", error);
+          break;
+        }
+      }
+      const meal = mealsForToday[mealType];
+      if (!meal) continue;
+
+      const notificationId = `meal:${mealType}`;
+      const inserted = await env.DB.prepare(`
+        INSERT OR IGNORE INTO sent_notifications (device_id, class_id, class_date) VALUES (?, ?, ?)
+      `).bind(device.id, notificationId, now.date).run();
+      if (!inserted.meta.changes) continue;
+
+      try {
+        const response = await sendPush(
+          env,
+          JSON.parse(device.subscription_json!) as PushSubscription,
+          `오늘 ${meal.name} 메뉴`,
+          meal.items.join(" · ").slice(0, 240),
+        );
+        if (response.status === 404 || response.status === 410) {
+          await env.DB.prepare("UPDATE devices SET subscription_json = NULL WHERE id = ?").bind(device.id).run();
+        }
+        if (!response.ok) throw new Error(`Push service returned ${response.status}`);
+      } catch (error) {
+        console.error("meal push failed", device.id, mealType, error);
+        await env.DB.prepare(
+          "DELETE FROM sent_notifications WHERE device_id = ? AND class_id = ? AND class_date = ?",
+        ).bind(device.id, notificationId, now.date).run();
       }
     }
   }

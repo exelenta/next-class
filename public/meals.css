@@ -1,0 +1,238 @@
+.shell {
+  padding-bottom: max(126px, calc(102px + env(safe-area-inset-bottom)));
+}
+
+.meal-dock {
+  position: fixed;
+  left: 50%;
+  bottom: max(14px, env(safe-area-inset-bottom));
+  z-index: 20;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  width: min(calc(100% - 28px), 420px);
+  padding: 7px;
+  border: 1px solid #343a45;
+  border-radius: 24px;
+  background: #171a21e8;
+  box-shadow: 0 16px 45px #000b;
+  backdrop-filter: blur(18px);
+}
+
+.meal-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 54px;
+  border: 0;
+  border-radius: 18px;
+  background: transparent;
+  color: #bfc4ce;
+  font-size: 13px;
+  font-weight: 750;
+  touch-action: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  transition: transform .14s ease, background .14s ease, color .14s ease;
+}
+
+.meal-button.active {
+  transform: scale(.96);
+  background: var(--accent);
+  color: #18200d;
+}
+
+.meal-icon {
+  display: grid;
+  place-items: center;
+  width: 25px;
+  height: 25px;
+  border-radius: 50%;
+  background: #ffffff0b;
+  font-size: 18px;
+  line-height: 1;
+}
+
+.meal-button.active .meal-icon {
+  background: #18200d14;
+}
+
+.meal-popup {
+  position: fixed;
+  left: 50%;
+  bottom: max(87px, calc(72px + env(safe-area-inset-bottom)));
+  z-index: 19;
+  width: min(calc(100% - 28px), 420px);
+  max-height: min(62vh, 520px);
+  overflow: hidden;
+  padding: 21px 21px 14px;
+  border: 1px solid #3a4233;
+  border-radius: 25px;
+  background: linear-gradient(155deg, #252b20, #151917 68%);
+  box-shadow: 0 24px 70px #000d;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 24px) scale(.97);
+  transform-origin: bottom center;
+  transition: opacity .16s ease, transform .2s cubic-bezier(.2, .8, .2, 1);
+}
+
+.meal-popup.show {
+  opacity: 1;
+  transform: translate(-50%, 0) scale(1);
+}
+
+.meal-popup-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid #ffffff12;
+}
+
+.meal-popup-date {
+  margin: 0 0 5px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.meal-popup h2 {
+  margin: 0;
+  font-size: 22px;
+  letter-spacing: -.5px;
+}
+
+.meal-calories {
+  flex: none;
+  padding: 6px 9px;
+  border-radius: 9px;
+  background: #b8f35b12;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.meal-calories:empty {
+  display: none;
+}
+
+.meal-menu-list {
+  display: grid;
+  gap: 9px;
+  max-height: calc(min(62vh, 520px) - 125px);
+  margin: 15px 0 10px;
+  padding: 0;
+  overflow: hidden;
+  list-style: none;
+}
+
+.meal-menu-list li {
+  position: relative;
+  padding-left: 15px;
+  color: #e9ece5;
+  font-size: 14px;
+  line-height: 1.35;
+}
+
+.meal-menu-list li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: .55em;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.meal-popup-hint {
+  margin: 0;
+  color: #757c6e;
+  font-size: 10px;
+  text-align: center;
+}
+
+.toast {
+  bottom: max(96px, calc(77px + env(safe-area-inset-bottom)));
+  z-index: 30;
+}
+
+.meal-time-settings {
+  display: grid;
+  gap: 12px;
+  margin-top: 22px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+
+.settings-title {
+  margin-bottom: 18px;
+}
+
+.meal-time-heading h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.meal-time-heading p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.meal-time-group {
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 17px;
+  background: #13161b;
+}
+
+.meal-time-group > strong {
+  display: block;
+  margin-bottom: 11px;
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.meal-time-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.settings .meal-time-grid label {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.meal-time-input {
+  height: 42px;
+  margin-top: 6px;
+  padding: 0 8px;
+  color-scheme: dark;
+  font-size: 13px;
+  text-align: center;
+}
+
+@media (max-width: 360px) {
+  .meal-dock,
+  .meal-popup {
+    width: calc(100% - 20px);
+  }
+
+  .meal-popup {
+    padding-inline: 17px;
+  }
+
+  .meal-time-grid {
+    gap: 5px;
+  }
+
+  .meal-time-input {
+    padding-inline: 4px;
+    font-size: 12px;
+  }
+}
